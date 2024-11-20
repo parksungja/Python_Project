@@ -1,10 +1,8 @@
 import json
-import threading
 from telegram import *
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from datetime import datetime, timedelta
 import asyncio
-
 
 # 토큰을 TOKEN 변수에 저장
 TOKEN = '7772440463:AAGb2Gh-PXu7oahc9AlToG31ucW-R8mmw74'
@@ -23,7 +21,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     "/info - 호서대 공지사항\n"
                                     "/cominfo - 컴퓨터공학부 공지사항\n"
                                     "/shuttle - 셔틀버스 시간표\n"
-                                    "/shumark - 셔틀 즐겨찾기"
+                                    "/remark - 셔틀 즐겨칮기 추가, 수정\n"
+                                    "/shumark - 셔틀 즐겨찾기 설정\n"
                                     "/reminder - 리마인더")
     
 # /portal 커맨드 핸들러 - 완
@@ -181,17 +180,28 @@ def get_full_schedule(day_type, location):
     rows = [f"{hour}시: " + ", ".join(times) for hour, times in schedule.items()]
     return "\n".join(rows) if rows else "전체 시간표를 찾을 수 없습니다."
 
-# 사용자 즐겨찾기 데이터를 저장할 딕셔너리
+# 사용자 즐겨찾기 및 알림 데이터를 저장할 딕셔너리
 user_favorites = {}
 user_notifications = {}
 
-# JSON 파일로 데이터 저장
-def save_data():
-    with open('user_favorites.json', 'w') as file:
-        json.dump(user_favorites, file)
+### JSON 파일로 데이터 저장 및 불러오기 ###
 
-# JSON 파일에서 데이터 불러오기
-def load_data():
+# 즐겨찾기 데이터 저장
+def save_favorites_data():
+    day_mapping_reverse = {
+        "mon": "월요일", "tue": "화요일", "wed": "수요일", "thu": "목요일",
+        "fri": "금요일", "sat": "토요일", "sun": "일요일"
+    }
+    for user_id, favorites in user_favorites.items():
+        user_favorites[user_id] = [
+            f"{day_mapping_reverse.get(favorite.split()[0], favorite.split()[0])} {favorite.split()[1]}"
+            for favorite in favorites
+        ]
+    with open('user_favorites.json', 'w', encoding='utf-8') as file:
+        json.dump(user_favorites, file, ensure_ascii=False, indent=4)
+
+# 즐겨찾기 데이터 불러오기
+def load_favorites_data():
     global user_favorites
     try:
         with open('user_favorites.json', 'r') as file:
@@ -199,10 +209,39 @@ def load_data():
     except FileNotFoundError:
         user_favorites = {}
 
-# 데이터 로드
-load_data()
+# 알림 데이터 저장
+def save_notifications_data():
+    day_mapping_reverse = {
+        "mon": "월요일", "tue": "화요일", "wed": "수요일", "thu": "목요일",
+        "fri": "금요일", "sat": "토요일", "sun": "일요일"
+    }
+    for user_id, notifications in user_notifications.items():
+        user_notifications[user_id] = {
+            f"{day_mapping_reverse.get(key.split()[0], key.split()[0])} {key.split()[1]}": value
+            for key, value in notifications.items()
+        }
+    with open('user_notifications.json', 'w', encoding='utf-8') as file:
+        json.dump(user_notifications, file, ensure_ascii=False, indent=4)
 
-# /remark 명령어 - 즐겨찾기 추가 및 수정
+# 알림 데이터 불러오기
+def load_notifications_data():
+    global user_notifications
+    try:
+        with open('user_notifications.json', 'r') as file:
+            user_notifications = json.load(file)
+
+            # Ensure loaded data structure is consistent
+            for user_id in user_notifications:
+                if not isinstance(user_notifications[user_id], dict):
+                    user_notifications[user_id] = {}
+    except FileNotFoundError:
+        user_notifications = {}
+
+# 데이터 로드 (봇 시작 시 호출)
+load_favorites_data()
+load_notifications_data()
+
+# /remark 명령어 - 완
 async def remark_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     if user_id not in user_favorites:
@@ -276,14 +315,22 @@ async def delete_favorite(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("삭제할 항목이 없습니다.")
         return
 
+    # 삭제할 즐겨찾기 항목
     deleted_item = favorites.pop(index)
-    save_data()
 
-    # 삭제 후 메시지 수정
+    # user_notifications에서도 해당 항목 삭제
+    if user_id in user_notifications and deleted_item in user_notifications[user_id]:
+        del user_notifications[user_id][deleted_item]
+        save_notifications_data()  # 변경 사항 저장
+
+    # user_favorites 저장
+    save_favorites_data()
+
     await query.edit_message_text(f"삭제됨: {deleted_item}")
-
-    # 메인 메뉴를 새로운 메시지로 표시
     await remark_command(update, context)
+
+    # 디버그 메시지 출력
+    print(f"[DEBUG] 즐겨찾기 및 알림 삭제 완료 - 사용자: {user_id}, 삭제 항목: {deleted_item}")
 
 # 요일 선택 핸들러
 async def show_days_for_favorite(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -439,15 +486,13 @@ async def handle_minute_selection(update: Update, context: ContextTypes.DEFAULT_
     if user_id not in user_favorites:
         user_favorites[user_id] = []
 
-    # 즐겨찾기 추가 처리
     if favorite_time not in user_favorites[user_id]:
         user_favorites[user_id].append(favorite_time)
-        save_data()
+        save_favorites_data()  # 데이터 저장
         await query.edit_message_text(f"즐겨찾기 추가됨: {favorite_time}")
     else:
         await query.edit_message_text("이미 추가된 즐겨찾기입니다.")
 
-    # 메인 메뉴를 새로운 메시지로 표시
     await remark_command(update, context)
 
 # 즐겨찾기 저장
@@ -471,10 +516,25 @@ async def save_favorite(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if favorite_time not in user_favorites[user_id]:
         user_favorites[user_id].append(favorite_time)
-        save_data()
+        save_favorites_data()
         await query.edit_message_text(f"즐겨찾기 추가됨: {favorite_time}")
     else:
         await query.edit_message_text("이미 추가된 즐겨찾기입니다.")
+
+# 영어 요일과 한글 요일 간 매핑
+day_mapping = {
+    "mon": "월요일", "tue": "화요일", "wed": "수요일", "thu": "목요일",
+    "fri": "금요일", "sat": "토요일", "sun": "일요일"
+}
+
+# 한글 요일로 변환
+def convert_day_to_korean(english_day):
+    return day_mapping.get(english_day, english_day)
+
+# 영어 요일로 변환
+def convert_day_to_english(korean_day):
+    reverse_mapping = {v: k for k, v in day_mapping.items()}
+    return reverse_mapping.get(korean_day, korean_day)
 
 # /shumark 명령어 핸들러
 async def shumark_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -483,8 +543,192 @@ async def shumark_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not favorites:
         await update.message.reply_text("저장된 즐겨찾기가 없습니다.")
         return
+
+    # 즐겨찾기 항목과 종료 버튼 출력
+    buttons = [
+        [InlineKeyboardButton(f"{fav} 설정", callback_data=f"shumark_{idx}")] for idx, fav in enumerate(favorites)
+    ]
+    buttons.append([InlineKeyboardButton("종료", callback_data="exit_shumark")])
+    reply_markup = InlineKeyboardMarkup(buttons)
+
     favorites_text = "\n".join(favorites)
-    await update.message.reply_text(f"저장된 즐겨찾기 목록:\n{favorites_text}")
+    await update.message.reply_text(f"즐겨찾기 목록:\n{favorites_text}\n\n항목을 선택하여 설정하세요.", reply_markup=reply_markup)
+
+# 즐겨찾기 항목 설정 핸들러
+async def shumark_item_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_id = str(update.effective_user.id)
+    favorites = user_favorites.get(user_id, [])
+    idx = int(query.data.split('_')[1])  # 선택한 즐겨찾기 항목 인덱스
+
+    if idx < 0 or idx >= len(favorites):
+        await query.edit_message_text("잘못된 항목입니다.")
+        return
+
+    selected_favorite = favorites[idx]
+    user_notifications.setdefault(user_id, {})  # Ensure user_notifications[user_id] is a dictionary
+    is_notification_on = user_notifications[user_id].get(selected_favorite, False)
+
+    # 알림 설정 메뉴 버튼
+    buttons = [
+        [InlineKeyboardButton("알림 켜기" if not is_notification_on else "알림 끄기", callback_data=f"toggle_notify_{idx}")],
+        [InlineKeyboardButton("알림 시간 설정", callback_data=f"set_time_{idx}")],
+        [InlineKeyboardButton("뒤로가기", callback_data="back_to_shumark")]
+    ]
+    reply_markup = InlineKeyboardMarkup(buttons)
+
+    await query.edit_message_text(f"항목: {selected_favorite}\n설정을 선택하세요.", reply_markup=reply_markup)
+
+# 뒤로가기 핸들러
+async def back_to_shumark(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await shumark_command(update, context)
+    
+# 종료 버튼 핸들러
+async def exit_shumark_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("메뉴가 종료되었습니다.")
+
+# 알림 설정 토글 핸들러
+async def toggle_notification(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_id = str(update.effective_user.id)
+    favorites = user_favorites.get(user_id, [])
+    idx = int(query.data.split('_')[2])
+
+    if idx < 0 or idx >= len(favorites):
+        await query.edit_message_text("잘못된 항목입니다.")
+        return
+
+    selected_favorite = favorites[idx]
+    user_notifications.setdefault(user_id, {})  # Ensure user_notifications[user_id] is a dictionary
+    current_status = user_notifications[user_id].get(selected_favorite, None)
+
+    # 알림 상태 토글
+    if current_status is None:  # 알림 켜기
+        user_notifications[user_id][selected_favorite] = 30  # 기본 30분 전 알림
+        asyncio.create_task(schedule_notifications(user_id))  # 알림 스케줄 시작
+        await query.edit_message_text(f"알림이 켜졌습니다: {selected_favorite} (30분 전)")
+    else:  # 알림 끄기
+        del user_notifications[user_id][selected_favorite]
+        await query.edit_message_text(f"알림이 꺼졌습니다: {selected_favorite}")
+    
+    print(f"알림 스케줄 시작: {user_id}")
+
+    save_notifications_data()
+
+# 알림 시간 설정 핸들러
+async def set_notification_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_id = str(update.effective_user.id)
+    favorites = user_favorites.get(user_id, [])
+    idx = int(query.data.split('_')[2])
+
+    if idx < 0 or idx >= len(favorites):
+        await query.edit_message_text("잘못된 항목입니다.")
+        return
+
+    context.user_data['setting_favorite_idx'] = idx
+    await query.edit_message_text("알림 시간을 (분 단위)로 입력하세요. (예: 30)")
+
+# 사용자가 입력한 알림 시간을 저장
+async def save_notification_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    idx = context.user_data.get('setting_favorite_idx')
+
+    if idx is None:
+        await update.message.reply_text("잘못된 요청입니다.")
+        return
+
+    time_input = update.message.text.strip()
+    if not time_input.isdigit():
+        await update.message.reply_text("숫자로 입력해주세요.")
+        return
+
+    notification_time = int(time_input)
+    favorites = user_favorites.get(user_id, [])
+    if idx < 0 or idx >= len(favorites):
+        await update.message.reply_text("잘못된 항목입니다.")
+        return
+
+    selected_favorite = favorites[idx]
+    day, time = selected_favorite.split()
+    
+    # 영어 요일을 한글 요일로 변환
+    korean_day = convert_day_to_korean(day)
+    formatted_favorite = f"{korean_day} {time}"
+
+    # 알림 시간 저장
+    user_notifications.setdefault(user_id, {})
+    user_notifications[user_id][formatted_favorite] = notification_time
+
+    # 알림 데이터 저장
+    save_notifications_data()
+
+    # 설정 완료 메시지
+    await update.message.reply_text(f"🔔 {korean_day} {time} 출발 셔틀버스 알림이 {notification_time}분 전으로 설정되었습니다.")
+
+    # 디버그 메시지 출력
+    print(f"[DEBUG] 알림 시간 설정 완료 - 사용자: {user_id}, {formatted_favorite} - {notification_time}분 전")
+
+    # 알림 스케줄러 시작
+    asyncio.create_task(schedule_notifications(user_id))
+    
+# 알림 스케줄러 함수
+async def schedule_notifications(user_id):
+    day_mapping = {
+        "월요일": 0, "화요일": 1, "수요일": 2, "목요일": 3,
+        "금요일": 4, "토요일": 5, "일요일": 6
+    }
+
+    while user_notifications.get(user_id, {}):
+        try:
+            favorites = user_notifications.get(user_id, {})
+            current_time = datetime.now()
+
+            for favorite, notify_minutes in favorites.items():
+                try:
+                    day, time_str = favorite.split()
+                    hour, minute = map(int, time_str.split(':'))
+
+                    # 요일 매핑
+                    target_day = day_mapping.get(day)
+                    if target_day is None:
+                        print(f"[DEBUG] 알림 요일 매핑 오류: {day}")
+                        continue
+
+                    # 목표 시간 계산
+                    target_time = current_time.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                    if target_day != current_time.weekday() or target_time <= current_time:
+                        continue
+
+                    # 알림 시간 계산
+                    notify_time = target_time - timedelta(minutes=notify_minutes)
+                    delay = (notify_time - current_time).total_seconds()
+
+                    if delay > 0:
+                        print(f"[DEBUG] 알림 예약 - 사용자: {user_id}, {favorite} - {notify_minutes}분 전")
+                        await asyncio.sleep(delay)
+
+                        # 알림 메시지 전송
+                        await app.bot.send_message(
+                            chat_id=user_id,
+                            text=f"🔔 {day} {hour}:{minute} 출발 셔틀버스 {notify_minutes}분 전입니다!"
+                        )
+                except Exception as e:
+                    print(f"[ERROR] 알림 처리 오류: {e}")
+        except Exception as e:
+            print(f"[ERROR] 알림 스케줄링 오류: {e}")
+
+        await asyncio.sleep(60)  # 1분마다 확인
 
 # /reminder 커맨드 - 알림 설정 시작
 async def reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -583,6 +827,14 @@ def main():
     app.add_handler(CallbackQueryHandler(change_hour_page, pattern='^(prev_hour_page|next_hour_page)$'))
     app.add_handler(CallbackQueryHandler(change_minute_page, pattern='^(prev_minute_page|next_minute_page)$'))
     app.add_handler(CallbackQueryHandler(exit_remark_menu, pattern='^exit$'))
+    
+    # /shumark 콜백 핸들러 추가
+    app.add_handler(CallbackQueryHandler(shumark_item_settings, pattern='^shumark_\\d+$'))
+    app.add_handler(CallbackQueryHandler(toggle_notification, pattern='^toggle_notify_\\d+$'))
+    app.add_handler(CallbackQueryHandler(set_notification_time, pattern='^set_time_\\d+$'))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, save_notification_time))
+    app.add_handler(CallbackQueryHandler(back_to_shumark, pattern='^back_to_shumark$'))
+    app.add_handler(CallbackQueryHandler(exit_shumark_menu, pattern='^exit_shumark$'))
 
     # Telegram bot 실행
     app.run_polling()
