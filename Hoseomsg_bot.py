@@ -220,8 +220,12 @@ def save_notifications_data():
             f"{day_mapping_reverse.get(key.split()[0], key.split()[0])} {key.split()[1]}": value
             for key, value in notifications.items()
         }
-    with open('user_notifications.json', 'w', encoding='utf-8') as file:
-        json.dump(user_notifications, file, ensure_ascii=False, indent=4)
+        
+    try:
+        with open('user_notifications.json', 'w', encoding='utf-8') as file:
+            json.dump(user_notifications, file, ensure_ascii=False, indent=4)
+    except IOError as e:
+        print(f"[ERROR] 알림 데이터 저장 실패: {e}")
 
 # 알림 데이터 불러오기
 def load_notifications_data():
@@ -317,10 +321,16 @@ async def delete_favorite(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 삭제할 즐겨찾기 항목
     deleted_item = favorites.pop(index)
+    print(f"[DEBUG] 삭제된 즐겨찾기 항목: {deleted_item}")  # 디버깅 로그
 
     # user_notifications에서도 해당 항목 삭제
-    if user_id in user_notifications and deleted_item in user_notifications[user_id]:
-        del user_notifications[user_id][deleted_item]
+    if user_id in user_notifications:
+        # 알림 데이터에서 해당 항목 삭제
+        notifications_to_delete = [
+            key for key in user_notifications[user_id] if key.startswith(deleted_item.split()[0])
+        ]
+        for key in notifications_to_delete:
+            del user_notifications[user_id][key]
         save_notifications_data()  # 변경 사항 저장
 
     # user_favorites 저장
@@ -331,6 +341,7 @@ async def delete_favorite(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 디버그 메시지 출력
     print(f"[DEBUG] 즐겨찾기 및 알림 삭제 완료 - 사용자: {user_id}, 삭제 항목: {deleted_item}")
+    print(f"[DEBUG] 남은 알림 데이터: {user_notifications.get(user_id, {})}")  # 알림 데이터 확인
 
 # 요일 선택 핸들러
 async def show_days_for_favorite(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -552,7 +563,7 @@ async def shumark_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(buttons)
 
     favorites_text = "\n".join(favorites)
-    await update.message.reply_text(f"즐겨찾기 목록:\n{favorites_text}\n\n항목을 선택하여 설정하세요.", reply_markup=reply_markup)
+    await update.message.reply_text(f"즐겨찾기 목록:\n{favorites_text}\n\n항목을 선택하여 설정하세요.\n알림 시간은 출발 30분 전입니다.", reply_markup=reply_markup)
 
 # 즐겨찾기 항목 설정 핸들러
 async def shumark_item_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -574,7 +585,6 @@ async def shumark_item_settings(update: Update, context: ContextTypes.DEFAULT_TY
     # 알림 설정 메뉴 버튼
     buttons = [
         [InlineKeyboardButton("알림 켜기" if not is_notification_on else "알림 끄기", callback_data=f"toggle_notify_{idx}")],
-        [InlineKeyboardButton("알림 시간 설정", callback_data=f"set_time_{idx}")],
         [InlineKeyboardButton("뒤로가기", callback_data="back_to_shumark")]
     ]
     reply_markup = InlineKeyboardMarkup(buttons)
@@ -636,33 +646,40 @@ async def set_notification_time(update: Update, context: ContextTypes.DEFAULT_TY
         await query.edit_message_text("잘못된 항목입니다.")
         return
 
+    # context.user_data에 사용자 선택값 저장
     context.user_data['setting_favorite_idx'] = idx
     await query.edit_message_text("알림 시간을 (분 단위)로 입력하세요. (예: 30)")
 
 # 사용자가 입력한 알림 시간을 저장
 async def save_notification_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     user_id = str(update.effective_user.id)
     idx = context.user_data.get('setting_favorite_idx')
 
+    # context.user_data 값 확인
     if idx is None:
-        await update.message.reply_text("잘못된 요청입니다.")
+        print("[DEBUG] setting_favorite_idx가 없음")
+        await update.message.reply_text("잘못된 요청입니다. 다시 시도해주세요.")
         return
 
+    # 사용자 입력 가져오기
     time_input = update.message.text.strip()
+    print(f"[DEBUG] 사용자 입력: {time_input}")  # 디버깅 로그 추가
     if not time_input.isdigit():
         await update.message.reply_text("숫자로 입력해주세요.")
         return
 
     notification_time = int(time_input)
     favorites = user_favorites.get(user_id, [])
+    print(f"[DEBUG] 즐겨찾기 목록: {favorites}")  # 디버깅 로그 추가
     if idx < 0 or idx >= len(favorites):
         await update.message.reply_text("잘못된 항목입니다.")
         return
 
     selected_favorite = favorites[idx]
     day, time = selected_favorite.split()
-    
-    # 영어 요일을 한글 요일로 변환
+
+    # 영어 요일 -> 한글 요일 변환
     korean_day = convert_day_to_korean(day)
     formatted_favorite = f"{korean_day} {time}"
 
@@ -673,21 +690,25 @@ async def save_notification_time(update: Update, context: ContextTypes.DEFAULT_T
     # 알림 데이터 저장
     save_notifications_data()
 
-    # 설정 완료 메시지
+    # 성공 메시지 전송
     await update.message.reply_text(f"🔔 {korean_day} {time} 출발 셔틀버스 알림이 {notification_time}분 전으로 설정되었습니다.")
-
-    # 디버그 메시지 출력
-    print(f"[DEBUG] 알림 시간 설정 완료 - 사용자: {user_id}, {formatted_favorite} - {notification_time}분 전")
 
     # 알림 스케줄러 시작
     asyncio.create_task(schedule_notifications(user_id))
-    
+
+
+scheduled_tasks = {}  # 사용자별 스케줄링 상태를 저장
+
 # 알림 스케줄러 함수
 async def schedule_notifications(user_id):
     day_mapping = {
         "월요일": 0, "화요일": 1, "수요일": 2, "목요일": 3,
         "금요일": 4, "토요일": 5, "일요일": 6
     }
+    if scheduled_tasks.get(user_id):
+        print(f"[DEBUG] 사용자 {user_id}에 대한 알림 스케줄이 이미 실행 중입니다.")
+        return
+    scheduled_tasks[user_id] = True
 
     while user_notifications.get(user_id, {}):
         try:
@@ -715,7 +736,6 @@ async def schedule_notifications(user_id):
                     delay = (notify_time - current_time).total_seconds()
 
                     if delay > 0:
-                        print(f"[DEBUG] 알림 예약 - 사용자: {user_id}, {favorite} - {notify_minutes}분 전")
                         await asyncio.sleep(delay)
 
                         # 알림 메시지 전송
@@ -729,15 +749,8 @@ async def schedule_notifications(user_id):
             print(f"[ERROR] 알림 스케줄링 오류: {e}")
 
         await asyncio.sleep(60)  # 1분마다 확인
-
-# /reminder 커맨드 - 알림 설정 시작
-async def reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("오늘", callback_data='today'), InlineKeyboardButton("내일", callback_data='tomorrow')],
-        [InlineKeyboardButton("직접 입력", callback_data='manual')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("알림 날짜를 선택하세요:", reply_markup=reply_markup)
+    
+    scheduled_tasks[user_id] = False  # 스케줄 종료 후 상태 초기화
 
 # 날짜 선택 시 시간 선택을 위한 버튼 표시
 async def date_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -808,7 +821,6 @@ def main():
     app.add_handler(CommandHandler("info", info_command))
     app.add_handler(CommandHandler("cominfo", cominfo_command))
     app.add_handler(CommandHandler("portal", portal_command))
-    app.add_handler(CommandHandler("reminder", reminder))
     app.add_handler(CallbackQueryHandler(date_selected, pattern='^(today|tomorrow|manual)$'))
     app.add_handler(CallbackQueryHandler(time_selected, pattern=r'^\d{1,2}:\d{2}$'))
     app.add_handler(CommandHandler("shumark", shumark_command))
