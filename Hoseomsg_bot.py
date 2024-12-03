@@ -10,7 +10,7 @@ TOKEN = '7772440463:AAGb2Gh-PXu7oahc9AlToG31ucW-R8mmw74'
 # Telegram bot 초기화
 app = Application.builder().token(TOKEN).build()
 
-# /start 커맨드 핸들러 - 완
+# /start 커맨드 핸들러
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("[호서대 알리미] 안녕하세요. 호서대 알리미 봇입니다.\n/help 명령어를 통해 이용해주세요")
 
@@ -22,25 +22,24 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     "/cominfo - 컴퓨터공학부 공지사항\n"
                                     "/shuttle - 셔틀버스 시간표\n"
                                     "/remark - 셔틀 즐겨칮기 추가, 수정\n"
-                                    "/shumark - 셔틀 즐겨찾기 설정\n"
-                                    "/reminder - 리마인더")
+                                    "/shumark - 셔틀 즐겨찾기 설정")
     
-# /portal 커맨드 핸들러 - 완
+# /portal 커맨드 핸들러
 async def portal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("https://sso.hoseo.edu/\n"
                                     "위 사이트에서 호서대 포털을 이용할 수 있습니다.")
 
-# /info 커맨드 핸들러 - 완
+# /info 커맨드 핸들러
 async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("https://www.hoseo.ac.kr/Home/BBSList.mbz?action=MAPP_1708240139\n"
                                     "위 사이트에서 호서대의 최신 공지사항을 확인할 수 있습니다.")
     
-# /cominfo 커맨드 핸들러 - 완
+# /cominfo 커맨드 핸들러
 async def cominfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("http://computer.hoseo.ac.kr/Home/BBSList.mbz?action=MAPP_2107121893\n"
                                     "위 사이트에서 컴퓨터공학부의 최신 공지사항을 확인할 수 있습니다.")
                             
-# 셔틀버스 시간표 데이터 - 완
+# 셔틀버스 시간표 데이터
 data_shuttle_schedule = {
     "평일":{
         "아산캠": {
@@ -63,35 +62,22 @@ data_shuttle_schedule = {
     },
     "토요일": {
         "아산캠": {
-            "8": ["20분"],
-            "10": ["00분"],
-            "12": ["30분"],
-            "13": ["30분"],
-            "15": ["00분"],
-            "16": ["00분"],
-            "17": ["00분"],
-            "18": ["00분"]
+            "8": ["20분"], "10": ["00분"], "12": ["30분"], "13": ["30분"],
+            "15": ["00분"], "16": ["00분"], "17": ["00분"], "18": ["00분"]
         }
     },
     "일요일(공휴일)": {
         "아산캠": {
-            "10": ["00분"],
-            "12": ["00분"],
-            "13": ["00분"],
-            "14": ["00분"],
-            "15": ["00분"],
-            "16": ["00분"],
-            "17": ["00분", "30분"],
-            "18": ["00분", "30분"],
-            "19": ["00분", "30분"],
-            "20": ["00분", "30분"],
-            "21": ["00분"]
+            "10": ["00분"], "12": ["00분"], "13": ["00분"], "14": ["00분"],
+            "15": ["00분"], "16": ["00분"], "17": ["00분", "30분"],
+            "18": ["00분", "30분"], "19": ["00분", "30분"],
+            "20": ["00분", "30분"], "21": ["00분"]
         }
     }
     # 다른 역의 데이터 추가 가능
 }
 
-# /shuttle 명령어 핸들러 - 완
+# /shuttle 명령어 핸들러
 async def shuttle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("평일", callback_data='weekday')],
@@ -101,7 +87,7 @@ async def shuttle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("셔틀버스 일정을 선택하세요:", reply_markup=reply_markup)
 
-# 평일/주말 선택 후 시간대 선택 - 완
+# 평일/주말 선택 후 시간대 선택
 async def day_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -128,7 +114,7 @@ async def day_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-# 특정시간대 또는 전체 시간표 선택 - 완
+# 특정시간대 또는 전체 시간표 선택
 async def schedule_type_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -147,7 +133,7 @@ async def schedule_type_selected(update: Update, context: ContextTypes.DEFAULT_T
         full_schedule_text = get_full_schedule(day_type, location)
         await query.edit_message_text(f"전체 시간표:\n```\n{full_schedule_text}\n```", parse_mode="Markdown")
 
-# 사용자가 특정 시간을 입력하면 해당 시간표를 출력 - 완
+# 사용자가 특정 시간을 입력하면 해당 시간표를 출력
 async def specific_time_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('specific_time'):
         time_input = update.message.text.strip()
@@ -163,7 +149,7 @@ async def specific_time_handler(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text(f"```\n{table_text}\n```", parse_mode="Markdown")
         del context.user_data['specific_time']
 
-# 특정 시간대 시간표 조회 함수 - 완
+# 특정 시간대 시간표 조회 함수
 def get_shuttle_schedule(day_type, location, hour):
     schedule = data_shuttle_schedule.get(day_type, {}).get(location, {})
     if hour in schedule:
@@ -174,7 +160,7 @@ def get_shuttle_schedule(day_type, location, hour):
         return "\n".join(rows)
     return "해당 시간에 대한 셔틀버스 정보가 없습니다."
 
-# 전체 시간표 조회 함수 - 완
+# 전체 시간표 조회 함수
 def get_full_schedule(day_type, location):
     schedule = data_shuttle_schedule.get(day_type, {}).get(location, {})
     rows = [f"{hour}시: " + ", ".join(times) for hour, times in schedule.items()]
@@ -245,7 +231,7 @@ def load_notifications_data():
 load_favorites_data()
 load_notifications_data()
 
-# /remark 명령어 - 완
+# /remark 명령어
 async def remark_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     if user_id not in user_favorites:
